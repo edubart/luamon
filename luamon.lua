@@ -114,9 +114,8 @@ local function terminate_inotify()
   notifyhandle = nil
 end
 
-local function handle_signal(signum)
+local function handle_signal()
   terminate_inotify()
-  io.stderr:write(string.format("terminated with signal %d\n", signum))
   os.exit(-1)
 end
 
@@ -241,7 +240,7 @@ local function watch_and_restart()
   if not options.skip_first then
     run()
   else
-    printf('[luamon] waiting for changes...', path)
+    printf('[luamon] waiting for changes...')
   end
   while true do
     wait_changes()

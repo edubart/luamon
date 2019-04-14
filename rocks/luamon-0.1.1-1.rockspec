@@ -1,8 +1,8 @@
 package = "luamon"
-version = "0.1.0-1"
+version = "0.1.1-1"
 source = {
   url = "git://github.com/edubart/luamon.git",
-  tag = "v0.1.0"
+  tag = "v0.1.1"
 }
 description = {
   summary = "Watch source changes and automatically restart (for live development)",
