@@ -8,11 +8,14 @@ local signal = require 'posix.signal'
 local posix = require 'posix'
 local argparse = require 'argparse'
 local lfs = require 'lfs'
+local colors = require 'term.colors'
+local stringx = require 'pl.stringx'
 local unpack = table.unpack or unpack
 
 local VESION = 'luamon 0.1'
 local options = {}
 local notifyhandle
+local wachedpaths = {}
 local runcmd
 
 local watch_events = {
@@ -24,16 +27,26 @@ local watch_events = {
   inotify.IN_MOVE
 }
 
-local function eprintf(format, ...)
+local function colorprintf(color, format, ...)
   local message
   if select('#', ...) > 0 then
     message = string.format(format, ...)
   else
     message = format
   end
+  if not options.no_color then
+    io.stderr:write(tostring(color))
+  end
   io.stderr:write(message)
+  if not options.no_color then
+    io.stderr:write(tostring(colors.reset))
+  end
   io.stderr:write('\n')
   io.stderr:flush()
+end
+
+local function printf(format, ...)
+  colorprintf(colors.yellow, format, ...)
 end
 
 local function build_runcmd()
@@ -45,7 +58,7 @@ local function build_runcmd()
   end
 
   local args = options.runargs
-  if args then
+  if args and #args > 0 then
     for i,arg in ipairs(args) do
       args[i] = plutil.quote_arg(arg)
     end
@@ -54,25 +67,36 @@ local function build_runcmd()
   runcmd = cmd
 end
 
+local function split_args_action(opts, name, value)
+  opts[name] = stringx.split(value, ',')
+end
+
 local function parse_args()
   local argparser = argparse("luamon", VESION)
-  argparser:flag('-v --version',    "Print current luamon version"):action(function()
+  argparser:flag('-v --version',    "Print current luamon version and exit"):action(function()
     print(VESION)
     os.exit(0)
   end)
   argparser:flag('-q --quiet',      "Be quiet, luamon don't any message")
   argparser:flag('-V --verbose',    "Show details on what is causing restart")
   argparser:flag('-f --fail-exit',  "Exit when the running command fails")
-  argparser:flag('-s --skip-first   "Skip first run (wait for changes before running)"')
+  argparser:flag('-s --skip-first', "Skip first run (wait for changes before running)")
   argparser:flag('-x --exec',       "Execute a command instead of running lua script")
-  argparser:option('-e --ext',      "Extensions to watch", "lua"):args('+')
-  argparser:option('-w --watch',    "Files/directories to watch", '.'):args('+')
-  argparser:option('-i --ignore',   "Files/directories to ignore", ".*"):args('+')
+  argparser:flag('--no-color',      "Don't colorize output")
+  argparser:option('-e --ext',
+    "Extensions to watch, separated by commas", "lua")
+    :action(split_args_action)
+  argparser:option('-w --watch',
+    "Files/directories to watch, separated by commas", '.')
+    :action(split_args_action)
+  argparser:option('-i --ignore',
+    "Files/directories shell patterns to ignore, separated by commas", ".*")
+    :action(split_args_action)
   argparser:option('-l --lua',      "Lua binary", "lua")
   argparser:option('-c --chdir',    "Change into directory before running the command")
   argparser:option('-d --delay',    "Delay between restart in seconds")
   argparser:argument("input",       "Input lua script to run")
-  argparser:argument("runargs"):args("*")
+  argparser:argument("runargs", "Script arguments"):args("*")
   options = argparser:parse()
   if options.chdir then
     options.chdir = plpath.abspath(options.chdir)
@@ -113,9 +137,14 @@ end
 
 local function addwatch(path)
   if options.verbose then
-    eprintf('Adding watch to %s', path)
+    printf('[luamon] added watch to %s', path)
+  end
+  if not plpath.exists(path) then
+    colorprintf(colors.red, "[luamon] path '%s' does not exists for watching", path)
+    os.exit(-1)
   end
   notifyhandle:addwatch(path, unpack(watch_events))
+  wachedpaths[path] = true
 end
 
 local function watch(path)
@@ -136,7 +165,7 @@ local function setup_watch_dirs()
   for _,dir in ipairs(options.watch) do
     local path = plpath.abspath(dir)
     if not options.quiet then
-      eprintf('Watching "%s"', path)
+      printf('[luamon] watching "%s"', path)
     end
     watch(path)
   end
@@ -147,37 +176,57 @@ local function run()
     plpath.chdir(options.chdir)
   end
   if not options.quiet then
-    eprintf('Running...')
-  end
-  if options.verbose then
-    eprintf(runcmd)
+    printf('[luamon] starting `%s`', runcmd)
   end
 
   local ok, status = plutil.execute(runcmd)
-  if not ok then
-    terminate_inotify()
-    error(ok, status)
-  elseif status ~= 0 and options.fail_exit then
-    if not options.quiet then
-      eprintf('Exited with code %d', status)
+  if not ok or status ~= 0 then
+    if options.fail_exit then
+      if not options.quiet then
+        colorprintf(colors.red, '[luamon] exited with code %d', status)
+      end
+      terminate_inotify()
+      os.exit(status)
+    elseif not options.quiet then
+      colorprintf(colors.red, '[luamon] exited with code %d, waiting for changes...', status)
     end
-    terminate_inotify()
-    os.exit(status)
+  elseif not options.quiet then
+    colorprintf(colors.green, '[luamon] clean exit, waiting for changes...')
   end
 end
 
-local function wait_changes()
-  if not options.quiet then
-    eprintf('Ended, waiting for changes...')
+local function is_watched_extesion(path)
+  for _,ext in ipairs(options.ext) do
+    if stringx.endswith(path, '.' .. ext) then
+      return true
+    end
   end
+end
+
+local function check_if_should_restart(path)
+  if not path or is_ignored(path) then return false end
+  if plpath.isdir(path) then
+    if not wachedpaths[path] then
+      addwatch(path)
+    end
+    for name in lfs.dir(path) do
+      if is_watched_extesion(name) then
+        return true
+      end
+    end
+  end
+  return is_watched_extesion(path)
+end
+
+local function wait_changes()
   repeat
     local found = false
     local events = notifyhandle:read()
     for _,ev in ipairs(events) do
       local name = ev.name
-      if not is_ignored(name) then
+      if check_if_should_restart(name) then
         if options.verbose then
-          eprintf('%s changed', ev.name)
+          printf('[luamon] %s changed', ev.name)
         end
         found = true
       end
@@ -191,6 +240,8 @@ end
 local function watch_and_restart()
   if not options.skip_first then
     run()
+  else
+    printf('[luamon] waiting for changes...', path)
   end
   while true do
     wait_changes()
