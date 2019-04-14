@@ -55,7 +55,7 @@ Arguments:
 
 Options:
    -v, --version         Print current luamon version and exit
-   -q, --quiet           Be quiet, luamon don't any message
+   -q, --quiet           Be quiet, luamon don't print any message
    -V, --verbose         Show details on what is causing restart
    -f, --fail-exit       Exit when the running command fails
    -s, --skip-first      Skip first run (wait for changes before running)
