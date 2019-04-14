@@ -38,7 +38,8 @@ Alternativily you can run any command with `-x`:
 luamon -e js -x "nodejs app.js my args"
 ```
 
-By default it watches for any file change in the working directory.
+By default it watches for any lua file change in the working directory,
+with option `-e` you can change that.
 
 ## Help
 ```
