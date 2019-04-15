@@ -13,15 +13,19 @@ local argparse = require 'argparse'
 local lfs = require 'lfs'
 local colors = require 'term.colors'
 local stringx = require 'pl.stringx'
+local termio = require 'posix.termio'
 local unpack = table.unpack or unpack
 
-local VESION = 'luamon 0.2.0'
+local VESION = 'luamon 0.2.1'
 local options = {}
 local wachedpaths = {}
 local fds = {}
 local notifyhandle
 local runcmd
 local runpid
+local stdin_state = termio.tcgetattr(unistd.STDIN_FILENO)
+local stdout_state = termio.tcgetattr(unistd.STDOUT_FILENO)
+local stderr_state = termio.tcgetattr(unistd.STDERR_FILENO)
 
 local watch_events = {
   inotify.IN_CLOSE_WRITE,
@@ -118,6 +122,12 @@ local function terminate_inotify()
   notifyhandle = nil
 end
 
+local function fix_terminal()
+  termio.tcsetattr(unistd.STDIN_FILENO, termio.TCSANOW, stdin_state)
+  termio.tcsetattr(unistd.STDOUT_FILENO, termio.TCSANOW, stdout_state)
+  termio.tcsetattr(unistd.STDERR_FILENO, termio.TCSANOW, stderr_state)
+end
+
 local function killpid(pid)
   if not pid then return true end
   local status = signal.kill(-pid, signal.SIGKILL) -- kill process group
@@ -126,7 +136,11 @@ end
 
 local function exit(code)
   terminate_inotify()
-  killpid(runpid)
+  if runpid then
+    killpid(runpid)
+    wait(runpid)
+    fix_terminal()
+  end
   os.exit(code)
 end
 
@@ -227,6 +241,7 @@ end
 local function run_finish(pid, reason, status)
   assert(pid == runpid, 'finished child pid is not the running pid')
   runpid = nil
+  fix_terminal()
   if reason == 'exited' then
     if status ~= 0 then
       if options.fail_exit then
