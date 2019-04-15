@@ -6,17 +6,22 @@ local pldir = require 'pl.dir'
 local plutil = require 'pl.utils'
 local signal = require 'posix.signal'
 local posix = require 'posix'
+local unistd = require 'posix.unistd'
+local wait = require 'posix.sys.wait'.wait
+local poll = require 'posix.poll'.poll
 local argparse = require 'argparse'
 local lfs = require 'lfs'
 local colors = require 'term.colors'
 local stringx = require 'pl.stringx'
 local unpack = table.unpack or unpack
 
-local VESION = 'luamon 0.1'
+local VESION = 'luamon 0.2.0'
 local options = {}
-local notifyhandle
 local wachedpaths = {}
+local fds = {}
+local notifyhandle
 local runcmd
+local runpid
 
 local watch_events = {
   inotify.IN_CLOSE_WRITE,
@@ -43,10 +48,6 @@ local function colorprintf(color, format, ...)
   end
   io.stderr:write('\n')
   io.stderr:flush()
-end
-
-local function printf(format, ...)
-  colorprintf(colors.yellow, format, ...)
 end
 
 local function build_runcmd()
@@ -82,7 +83,9 @@ local function parse_args()
   argparser:flag('-f --fail-exit',  "Exit when the running command fails")
   argparser:flag('-s --skip-first', "Skip first run (wait for changes before running)")
   argparser:flag('-x --exec',       "Execute a command instead of running lua script")
+  argparser:flag('-r --restart',    "Automatically restart upon exit (run forever)")
   argparser:flag('--no-color',      "Don't colorize output")
+  argparser:flag('--no-hup',        "Don't stop when terminal closes (SIGHUP signal)")
   argparser:option('-e --ext',
     "Extensions to watch, separated by commas", "lua")
     :action(split_args_action)
@@ -90,9 +93,9 @@ local function parse_args()
     "Files/directories to watch, separated by commas", '.')
     :action(split_args_action)
   argparser:option('-i --ignore',
-    "Files/directories shell patterns to ignore, separated by commas", ".*")
+    "Shell pattern of paths to ignore, separated by commas", ".*")
     :action(split_args_action)
-  argparser:option('-l --lua',      "Lua binary", "lua")
+  argparser:option('-l --lua',      "Lua binary to run (or any other binary)", "lua")
   argparser:option('-c --chdir',    "Change into directory before running the command")
   argparser:option('-d --delay',    "Delay between restart in seconds")
   argparser:argument("input",       "Input lua script to run")
@@ -105,6 +108,7 @@ end
 
 local function init_inotify()
   notifyhandle = inotify.init()
+  fds[notifyhandle:getfd()] = {events={IN=true}, inotify=true}
 end
 
 local function terminate_inotify()
@@ -114,14 +118,36 @@ local function terminate_inotify()
   notifyhandle = nil
 end
 
-local function handle_signal()
-  terminate_inotify()
-  os.exit(-1)
+local function killpid(pid)
+  if not pid then return true end
+  local status = signal.kill(-pid, signal.SIGKILL) -- kill process group
+  return status == 0
 end
 
-local function setup_signal_handler()
-  signal.signal(signal.SIGINT, handle_signal)
-  signal.signal(signal.SIGTERM, handle_signal)
+local function exit(code)
+  terminate_inotify()
+  killpid(runpid)
+  os.exit(code)
+end
+
+local function parent_handle_signal()
+  exit(-1)
+end
+
+local function setup_signal_handler(child)
+  if not child then
+    signal.signal(signal.SIGINT, parent_handle_signal)
+    signal.signal(signal.SIGTERM, parent_handle_signal)
+    if not options.no_hup then
+      signal.signal(signal.SIGHUP, parent_handle_signal)
+    end
+  else
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    if not options.no_hup then
+      signal.signal(signal.SIGHUP, signal.SIG_DFL)
+    end
+  end
 end
 
 local function is_ignored(name)
@@ -136,13 +162,13 @@ end
 
 local function addwatch(path)
   if options.verbose then
-    printf('[luamon] added watch to %s', path)
+    colorprintf(colors.yellow, '[luamon] added watch to %s', path)
   end
   if not plpath.exists(path) then
     colorprintf(colors.red, "[luamon] path '%s' does not exists for watching", path)
-    os.exit(-1)
+    exit(-1)
   end
-  notifyhandle:addwatch(path, unpack(watch_events))
+  assert(notifyhandle:addwatch(path, unpack(watch_events)))
   wachedpaths[path] = true
 end
 
@@ -164,10 +190,27 @@ local function setup_watch_dirs()
   for _,dir in ipairs(options.watch) do
     local path = plpath.abspath(dir)
     if not options.quiet then
-      printf('[luamon] watching "%s"', path)
+      colorprintf(colors.yellow, '[luamon] watching "%s"', path)
     end
     watch(path)
   end
+end
+
+local function forkexecute(cmd)
+  local rpipe, wpipe = assert(unistd.pipe())
+  local pid = assert(unistd.fork())
+  if pid == 0 then -- child
+    setup_signal_handler(true)
+    assert(unistd.setpid('s')) -- new process group
+    notifyhandle:close()
+    unistd.close(rpipe)
+    local _, status = plutil.execute(cmd)
+    unistd._exit(status)
+  else -- parent
+    unistd.close(wpipe)
+    fds[rpipe] = {pid = pid, events={}}
+  end
+  return pid
 end
 
 local function run()
@@ -175,22 +218,34 @@ local function run()
     plpath.chdir(options.chdir)
   end
   if not options.quiet then
-    printf('[luamon] starting `%s`', runcmd)
+    colorprintf(colors.yellow, '[luamon] starting `%s`', runcmd)
   end
 
-  local ok, status = plutil.execute(runcmd)
-  if not ok or status ~= 0 then
-    if options.fail_exit then
-      if not options.quiet then
+  runpid = forkexecute(runcmd)
+end
+
+local function run_finish(pid, reason, status)
+  assert(pid == runpid, 'finished child pid is not the running pid')
+  runpid = nil
+  if reason == 'exited' then
+    if status ~= 0 then
+      if options.fail_exit then
+        if not options.quiet then
+          colorprintf(colors.red, '[luamon] exited with code %d', status)
+        end
+        terminate_inotify()
+        exit(status)
+      elseif not options.quiet then
         colorprintf(colors.red, '[luamon] exited with code %d', status)
+        return options.restart
       end
-      terminate_inotify()
-      os.exit(status)
     elseif not options.quiet then
-      colorprintf(colors.red, '[luamon] exited with code %d, waiting for changes...', status)
+      colorprintf(colors.green, '[luamon] clean exit')
+      return options.restart
     end
-  elseif not options.quiet then
-    colorprintf(colors.green, '[luamon] clean exit, waiting for changes...')
+  else
+    colorprintf(colors.magenta, '[luamon] killed')
+    return true
   end
 end
 
@@ -217,43 +272,76 @@ local function check_if_should_restart(path)
   return is_watched_extesion(path)
 end
 
-local function wait_changes()
-  repeat
-    local found = false
-    local events = notifyhandle:read()
-    for _,ev in ipairs(events) do
-      local name = ev.name
-      if check_if_should_restart(name) then
-        if options.verbose then
-          printf('[luamon] %s changed', ev.name)
-        end
-        found = true
+local function check_changes()
+  local changed = false
+  local events = notifyhandle:read()
+  for _,ev in ipairs(events) do
+    local name = ev.name
+    if check_if_should_restart(name) then
+      if options.verbose then
+        colorprintf(colors.yellow, '[luamon] %s changed', ev.name)
+      end
+      changed = true
+    end
+  end
+  if changed and runpid then
+    return not killpid(runpid)
+  end
+  return changed
+end
+
+local function pollfds()
+  local dorun = false
+  assert(poll(fds), 'poll failed')
+  for fd, fdt in pairs(fds) do
+    if fdt.revents.IN and fdt.inotify then
+      if check_changes() then
+        dorun = true
       end
     end
-  until found
-  if options.delay then
-    posix.sleep(options.delay)
+    if fdt.revents.HUP and not fdt.inotify then
+      local pid, reason, status = assert(wait(fdt.pid))
+      assert(pid == fdt.pid, 'got HUP from unexected fd')
+      unistd.close(fd)
+      fds[fd] = nil
+      if run_finish(pid, reason, status) then
+        dorun = true
+      end
+    end
   end
+  return dorun
 end
 
 local function watch_and_restart()
   if not options.skip_first then
     run()
   else
-    printf('[luamon] waiting for changes...')
+    colorprintf(colors.yellow, '[luamon] waiting for changes...')
   end
   while true do
-    wait_changes()
-    run()
+    if pollfds() then
+      assert(runpid == nil, 'trying to run while a child is already running')
+      if options.delay then
+        posix.sleep(options.delay)
+      end
+      run()
+    end
   end
 end
 
-do
+local function main()
   parse_args()
   build_runcmd()
   setup_signal_handler()
   init_inotify()
   setup_watch_dirs()
   watch_and_restart()
-  terminate_inotify()
+end
+
+do
+  local ok, err = xpcall(main, debug.traceback)
+  if not ok then
+    colorprintf(colors.red, 'FATAL ERROR: %s', err)
+    exit(-1)
+  end
 end

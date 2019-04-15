@@ -39,15 +39,15 @@ luamon -e js -x "nodejs app.js my args"
 ```
 
 By default it watches for any lua file change in the working directory,
-with option `-e` you can change that.
+with option `-e` you can specify which .
 
 ## Help
 ```
-Usage: luamon [-v] [-q] [-V] [-f] [-s] [-x] [--no-color] [-e <ext>]
-       [-w <watch>] [-i <ignore>] [-l <lua>] [-c <chdir>] [-d <delay>]
-       [-h] <input> [<runargs>] ...
+Usage: luamon [-v] [-q] [-V] [-f] [-s] [-x] [-r] [--no-color]
+       [--no-hup] [-e <ext>] [-w <watch>] [-i <ignore>] [-l <lua>]
+       [-c <chdir>] [-d <delay>] [-h] <input> [<runargs>] ...
 
-luamon 0.1
+luamon 0.2.0
 
 Arguments:
    input                 Input lua script to run
@@ -60,14 +60,16 @@ Options:
    -f, --fail-exit       Exit when the running command fails
    -s, --skip-first      Skip first run (wait for changes before running)
    -x, --exec            Execute a command instead of running lua script
+   -r, --restart         Automatically restart upon exit (run forever)
    --no-color            Don't colorize output
+   --no-hup              Don't stop when terminal closes (SIGHUP signal)
       -e <ext>,          Extensions to watch, separated by commas (default: lua)
    --ext <ext>
         -w <watch>,      Files/directories to watch, separated by commas (default: .)
    --watch <watch>
-         -i <ignore>,    Files/directories shell patterns to ignore, separated by commas (default: .*)
+         -i <ignore>,    Shell pattern of paths to ignore, separated by commas (default: .*)
    --ignore <ignore>
-      -l <lua>,          Lua binary (default: lua)
+      -l <lua>,          Lua binary to run (or any other binary) (default: lua)
    --lua <lua>
         -c <chdir>,      Change into directory before running the command
    --chdir <chdir>

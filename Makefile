@@ -1,5 +1,5 @@
 LUAEXE=lua
-ROCKSPEC=rocks/luamon-0.1.1-1.rockspec
+ROCKSPEC=rocks/luamon-0.2.0-1.rockspec
 
 test:
 	lua test.lua
@@ -12,9 +12,6 @@ test-all:
 test-rocks:
 	luarocks make --lua-version=5.3 --local $(ROCKSPEC)
 	luarocks make --lua-version=5.1 --local $(ROCKSPEC)
-	lua5.1 test.lua
-	lua5.3 test.lua
-	luajit test.lua
 
 upload-rocks:
 	luarocks upload --api-key=$(LUAROCKS_APIKEY) $(ROCKSPEC)
