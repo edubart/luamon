@@ -47,7 +47,7 @@ Usage: luamon [-v] [-q] [-V] [-f] [-s] [-x] [-r] [--no-color]
        [--no-hup] [-e <ext>] [-w <watch>] [-i <ignore>] [-l <lua>]
        [-c <chdir>] [-d <delay>] [-h] <input> [<runargs>] ...
 
-luamon 0.2.0
+luamon 0.2.2
 
 Arguments:
    input                 Input lua script to run
@@ -65,7 +65,7 @@ Options:
    --no-hup              Don't stop when terminal closes (SIGHUP signal)
       -e <ext>,          Extensions to watch, separated by commas (default: lua)
    --ext <ext>
-        -w <watch>,      Files/directories to watch, separated by commas (default: .)
+        -w <watch>,      Directories to watch, separated by commas (default: .)
    --watch <watch>
          -i <ignore>,    Shell pattern of paths to ignore, separated by commas (default: .*)
    --ignore <ignore>

@@ -1,31 +1,32 @@
 #!/usr/bin/env lua
 
-local inotify = require 'inotify'
 local plpath = require 'pl.path'
 local pldir = require 'pl.dir'
 local plutil = require 'pl.utils'
+local stringx = require 'pl.stringx'
 local signal = require 'posix.signal'
-local posix = require 'posix'
 local unistd = require 'posix.unistd'
-local wait = require 'posix.sys.wait'.wait
-local poll = require 'posix.poll'.poll
+local wait = require 'posix.sys.wait'
+local termio = require 'posix.termio'
+local errno = require 'posix.errno'
+local inotify = require 'inotify'
 local argparse = require 'argparse'
 local lfs = require 'lfs'
 local colors = require 'term.colors'
-local stringx = require 'pl.stringx'
-local termio = require 'posix.termio'
 local unpack = table.unpack or unpack
 
-local VESION = 'luamon 0.2.1'
+local VESION = 'luamon 0.2.2'
 local options = {}
 local wachedpaths = {}
-local fds = {}
 local notifyhandle
+local notifyrunterm
 local runcmd
 local runpid
 local stdin_state = termio.tcgetattr(unistd.STDIN_FILENO)
 local stdout_state = termio.tcgetattr(unistd.STDOUT_FILENO)
 local stderr_state = termio.tcgetattr(unistd.STDERR_FILENO)
+local stdin_tcpgrp = unistd.tcgetpgrp(unistd.STDIN_FILENO)
+local run_finish
 
 local watch_events = {
   inotify.IN_CLOSE_WRITE,
@@ -94,7 +95,7 @@ local function parse_args()
     "Extensions to watch, separated by commas", "lua")
     :action(split_args_action)
   argparser:option('-w --watch',
-    "Files/directories to watch, separated by commas", '.')
+    "Directories to watch, separated by commas", '.')
     :action(split_args_action)
   argparser:option('-i --ignore',
     "Shell pattern of paths to ignore, separated by commas", ".*")
@@ -112,7 +113,6 @@ end
 
 local function init_inotify()
   notifyhandle = inotify.init()
-  fds[notifyhandle:getfd()] = {events={IN=true}, inotify=true}
 end
 
 local function terminate_inotify()
@@ -122,25 +122,41 @@ local function terminate_inotify()
   notifyhandle = nil
 end
 
-local function fix_terminal()
+local function restore_terminal()
+  -- fix any mess with the terminal outputs (when killing REPLs)
   termio.tcsetattr(unistd.STDIN_FILENO, termio.TCSANOW, stdin_state)
   termio.tcsetattr(unistd.STDOUT_FILENO, termio.TCSANOW, stdout_state)
   termio.tcsetattr(unistd.STDERR_FILENO, termio.TCSANOW, stderr_state)
+  -- bring the parent process to the foreground
+  unistd.tcsetpgrp(unistd.STDIN_FILENO, stdin_tcpgrp)
 end
 
-local function killpid(pid)
-  if not pid then return true end
-  local status = signal.kill(-pid, signal.SIGKILL) -- kill process group
-  return status == 0
+local function kill_wait(pid)
+  -- kill child if running
+  local _, reason, status = wait.wait(pid, wait.WNOHANG)
+  if reason == 'running' then
+    -- kill child process group
+    signal.kill(-pid, signal.SIGKILL)
+
+    -- wait child
+    repeat
+      local wpid
+      wpid, reason, status = wait.wait(pid)
+      if not wpid then
+        assert(status == errno.EINTR, reason)
+      else
+        assert(wpid == pid)
+      end
+    until wpid
+  end
+
+  restore_terminal()
+  return reason, status
 end
 
 local function exit(code)
   terminate_inotify()
-  if runpid then
-    killpid(runpid)
-    wait(runpid)
-    fix_terminal()
-  end
+  run_finish()
   os.exit(code)
 end
 
@@ -148,14 +164,23 @@ local function parent_handle_signal()
   exit(-1)
 end
 
+local function parent_handle_child_signal()
+  restore_terminal()
+  notifyrunterm = true
+end
+
 local function setup_signal_handler(child)
   if not child then
+    signal.signal(signal.SIGTTOU, parent_handle_child_signal)
+    signal.signal(signal.SIGCHLD, parent_handle_child_signal)
     signal.signal(signal.SIGINT, parent_handle_signal)
     signal.signal(signal.SIGTERM, parent_handle_signal)
     if not options.no_hup then
       signal.signal(signal.SIGHUP, parent_handle_signal)
     end
   else
+    signal.signal(signal.SIGTTOU, signal.SIG_DFL)
+    signal.signal(signal.SIGCHLD, signal.SIG_DFL)
     signal.signal(signal.SIGINT, signal.SIG_DFL)
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
     if not options.no_hup then
@@ -211,18 +236,15 @@ local function setup_watch_dirs()
 end
 
 local function forkexecute(cmd)
-  local rpipe, wpipe = assert(unistd.pipe())
   local pid = assert(unistd.fork())
   if pid == 0 then -- child
-    setup_signal_handler(true)
-    assert(unistd.setpid('s')) -- new process group
-    notifyhandle:close()
-    unistd.close(rpipe)
+    setup_signal_handler(true) --remove singal handlers from child
+    notifyhandle:close() -- close unused fd in child
     local _, status = plutil.execute(cmd)
-    unistd._exit(status)
+    unistd._exit(status) -- exit child without unitializing
   else -- parent
-    unistd.close(wpipe)
-    fds[rpipe] = {pid = pid, events={}}
+    assert(unistd.setpid('p', pid, pid)) -- new process group for child
+    assert(unistd.tcsetpgrp(unistd.STDIN_FILENO, pid)) -- bring child to the foreground
   end
   return pid
 end
@@ -234,14 +256,13 @@ local function run()
   if not options.quiet then
     colorprintf(colors.yellow, '[luamon] starting `%s`', runcmd)
   end
-
   runpid = forkexecute(runcmd)
 end
 
-local function run_finish(pid, reason, status)
-  assert(pid == runpid, 'finished child pid is not the running pid')
+function run_finish()
+  if not runpid then return false end
+  local reason, status = kill_wait(runpid)
   runpid = nil
-  fix_terminal()
   if reason == 'exited' then
     if status ~= 0 then
       if options.fail_exit then
@@ -258,9 +279,9 @@ local function run_finish(pid, reason, status)
       colorprintf(colors.green, '[luamon] clean exit')
       return options.restart
     end
-  else
+  elseif reason == 'killed' then
     colorprintf(colors.magenta, '[luamon] killed')
-    return true
+    return options.restart
   end
 end
 
@@ -287,60 +308,53 @@ local function check_if_should_restart(path)
   return is_watched_extesion(path)
 end
 
-local function check_changes()
-  local changed = false
-  local events = notifyhandle:read()
-  for _,ev in ipairs(events) do
-    local name = ev.name
-    if check_if_should_restart(name) then
-      if options.verbose then
-        colorprintf(colors.yellow, '[luamon] %s changed', ev.name)
+local function wait_restart()
+  repeat
+    local restart = false
+    local events, reason, errcode = notifyhandle:read()
+    if events then
+      for _,ev in ipairs(events) do
+        local name = ev.name
+        if check_if_should_restart(name) then
+          if options.verbose then
+            colorprintf(colors.yellow, '[luamon] %s changed', ev.name)
+          end
+          run_finish()
+          restart = true
+        end
       end
-      changed = true
+    elseif errcode == errno.EINTR then -- signal interrupted
+      if notifyrunterm and run_finish() then
+        restart = true
+      end
+    else
+      error(reason)
     end
-  end
-  if changed and runpid then
-    return not killpid(runpid)
-  end
-  return changed
+  until restart
 end
 
-local function pollfds()
-  local dorun = false
-  assert(poll(fds), 'poll failed')
-  for fd, fdt in pairs(fds) do
-    if fdt.revents.IN and fdt.inotify then
-      if check_changes() then
-        dorun = true
-      end
-    end
-    if fdt.revents.HUP and not fdt.inotify then
-      local pid, reason, status = assert(wait(fdt.pid))
-      assert(pid == fdt.pid, 'got HUP from unexected fd')
-      unistd.close(fd)
-      fds[fd] = nil
-      if run_finish(pid, reason, status) then
-        dorun = true
-      end
-    end
-  end
-  return dorun
+local function sleep_until(timeend)
+  repeat
+    local ramaining = math.max(math.ceil(timeend - os.time()), 0)
+    local sleepret = unistd.sleep(ramaining)
+  until sleepret == 0 or ramaining == 0
 end
 
 local function watch_and_restart()
+  local lastrun = 0
   if not options.skip_first then
     run()
+    lastrun = os.time()
   else
     colorprintf(colors.yellow, '[luamon] waiting for changes...')
   end
   while true do
-    if pollfds() then
-      assert(runpid == nil, 'trying to run while a child is already running')
-      if options.delay then
-        posix.sleep(options.delay)
-      end
-      run()
+    wait_restart()
+    if options.delay then
+      sleep_until(lastrun + options.delay)
     end
+    run()
+    lastrun = os.time()
   end
 end
 

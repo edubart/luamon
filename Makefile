@@ -1,5 +1,5 @@
 LUAEXE=lua
-ROCKSPEC=rocks/luamon-0.2.1-1.rockspec
+ROCKSPEC=rocks/luamon-0.2.2-1.rockspec
 
 test:
 	lua test.lua
