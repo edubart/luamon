@@ -236,6 +236,8 @@ local function setup_watch_dirs()
 end
 
 local function forkexecute(cmd)
+  io.stdout:flush()
+  io.stderr:flush()
   local pid = assert(unistd.fork())
   if pid == 0 then -- child
     setup_signal_handler(true) --remove singal handlers from child
