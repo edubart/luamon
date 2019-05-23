@@ -1,8 +1,10 @@
 #!/usr/bin/env lua
 
 local plpath = require 'pl.path'
+local plfile = require 'pl.file'
 local pldir = require 'pl.dir'
 local plutil = require 'pl.utils'
+local compat = require 'pl.compat'
 local stringx = require 'pl.stringx'
 local signal = require 'posix.signal'
 local unistd = require 'posix.unistd'
@@ -79,6 +81,12 @@ end
 
 local function parse_args()
   local argparser = argparse("luamon", VESION)
+  local defoptions = {
+    ext={'lua'},
+    watch={'.'},
+    ignore={'.*'},
+    lua='lua'
+  }
   argparser:flag('-v --version',    "Print current luamon version and exit"):action(function()
     print(VESION)
     os.exit(0)
@@ -92,20 +100,37 @@ local function parse_args()
   argparser:flag('--no-color',      "Don't colorize output")
   argparser:flag('--no-hup',        "Don't stop when terminal closes (SIGHUP signal)")
   argparser:option('-e --ext',
-    "Extensions to watch, separated by commas", "lua")
+    "Extensions to watch, separated by commas")
     :action(split_args_action)
   argparser:option('-w --watch',
-    "Directories to watch, separated by commas", '.')
+    "Directories to watch, separated by commas")
     :action(split_args_action)
   argparser:option('-i --ignore',
-    "Shell pattern of paths to ignore, separated by commas", ".*")
+    "Shell pattern of paths to ignore, separated by commas")
     :action(split_args_action)
-  argparser:option('-l --lua',      "Lua binary to run (or any other binary)", "lua")
+  argparser:option('-l --lua',      "Lua binary to run (or any other binary)")
   argparser:option('-c --chdir',    "Change into directory before running the command")
   argparser:option('-d --delay',    "Delay between restart in seconds")
   argparser:argument("input",       "Input lua script to run")
   argparser:argument("runargs", "Script arguments"):args("*")
   options = argparser:parse()
+
+  if plpath.exists('.luamonrc') then
+    local rcoptions = {}
+    local rcfunc, err = compat.load(plfile.read('.luamonrc'), '@.luamonrc', "t", rcoptions)
+    local ok
+    if rcfunc then
+      ok, err = pcall(rcfunc)
+    end
+    if not ok then
+      error(string.format('failed to load luamonrc:\n%s', err))
+    end
+    setmetatable(options, {__index = rcoptions})
+    setmetatable(rcoptions, {__index = defoptions})
+  else
+    setmetatable(options, {__index = defoptions})
+  end
+
   if options.chdir then
     options.chdir = plpath.abspath(options.chdir)
   end
