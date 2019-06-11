@@ -47,7 +47,7 @@ Usage: luamon [-v] [-q] [-V] [-f] [-s] [-x] [-r] [--no-color]
        [--no-hup] [-e <ext>] [-w <watch>] [-i <ignore>] [-l <lua>]
        [-c <chdir>] [-d <delay>] [-h] <input> [<runargs>] ...
 
-luamon 0.2.2
+luamon
 
 Arguments:
    input                 Input lua script to run
