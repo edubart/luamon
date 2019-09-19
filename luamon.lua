@@ -15,9 +15,10 @@ local inotify = require 'inotify'
 local argparse = require 'argparse'
 local lfs = require 'lfs'
 local colors = require 'term.colors'
+local term = require 'term'
 local unpack = table.unpack or unpack
 
-local VESION = 'luamon 0.3.1'
+local VESION = 'luamon 0.3.2'
 local options = {}
 local wachedpaths = {}
 local notifyhandle
@@ -98,6 +99,7 @@ local function parse_args()
   argparser:flag('-s --skip-first', "Skip first run (wait for changes before running)")
   argparser:flag('-x --exec',       "Execute a command instead of running lua script")
   argparser:flag('-r --restart',    "Automatically restart upon exit (run forever)")
+  argparser:flag('-t --term-clear', "Clear terminal before each run")
   argparser:flag('--no-color',      "Don't colorize output")
   argparser:flag('--no-hup',        "Don't stop when terminal closes (SIGHUP signal)")
   argparser:option('-e --ext',
@@ -303,6 +305,10 @@ local function run()
   end
   if not options.quiet then
     colorprintf(colors.yellow, '[luamon] starting `%s`', runcmd)
+  end
+  if options.term_clear then
+    term.clear()
+    term.cursor.jump(1, 1)
   end
   runpid = forkexecute(runcmd)
 end
