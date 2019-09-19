@@ -17,7 +17,7 @@ local lfs = require 'lfs'
 local colors = require 'term.colors'
 local unpack = table.unpack or unpack
 
-local VESION = 'luamon 0.3.0'
+local VESION = 'luamon 0.3.1'
 local options = {}
 local wachedpaths = {}
 local notifyhandle
