@@ -94,6 +94,7 @@ local function parse_args()
   argparser:flag('-q --quiet',      "Be quiet, luamon don't print any message")
   argparser:flag('-V --verbose',    "Show details on what is causing restart")
   argparser:flag('-f --fail-exit',  "Exit when the running command fails")
+  argparser:flag('-o --only-input', "Watch only the input file for changes")
   argparser:flag('-s --skip-first', "Skip first run (wait for changes before running)")
   argparser:flag('-x --exec',       "Execute a command instead of running lua script")
   argparser:flag('-r --restart',    "Automatically restart upon exit (run forever)")
@@ -185,6 +186,11 @@ local function exit(code)
   os.exit(code)
 end
 
+local function exiterror(message, ...)
+  colorprintf(colors.red, "[luamon] " .. message, ...)
+  exit(-1)
+end
+
 local function parent_handle_signal()
   exit(-1)
 end
@@ -229,8 +235,7 @@ local function addwatch(path)
     colorprintf(colors.yellow, '[luamon] added watch to %s', path)
   end
   if not plpath.exists(path) then
-    colorprintf(colors.red, "[luamon] path '%s' does not exists for watching", path)
-    exit(-1)
+    exiterror("[luamon] path '%s' does not exists for watching", path)
   end
   assert(notifyhandle:addwatch(path, unpack(watch_events)))
   wachedpaths[path] = true
@@ -251,6 +256,22 @@ local function watch(path)
 end
 
 local function setup_watch_dirs()
+  if options.only_input then
+    if options.exec then
+      exiterror("option --only-input cannot be used with --exec option")
+    end
+    if #options.watch ~= 1 or options.watch[1] ~= '.' then
+      exiterror("option --only-input cannot be used with --watch option")
+    end
+    local path = plpath.abspath(options.input)
+    assert(plpath.exists(path), "input file not found")
+    if not options.quiet then
+      colorprintf(colors.yellow, '[luamon] watching "%s"', path)
+    end
+    watch(path)
+    return
+  end
+
   for _,dir in ipairs(options.watch) do
     local path = plpath.abspath(dir)
     if not options.quiet then
@@ -321,6 +342,7 @@ local function is_watched_extesion(path)
 end
 
 local function check_if_should_restart(path)
+  if options.only_input then return true end
   if not path or is_ignored(path) then return false end
   if plpath.isdir(path) then
     if not wachedpaths[path] then
