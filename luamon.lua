@@ -9,6 +9,7 @@ local stringx = require 'pl.stringx'
 local signal = require 'posix.signal'
 local unistd = require 'posix.unistd'
 local wait = require 'posix.sys.wait'
+local time = require 'posix.time'
 local termio = require 'posix.termio'
 local errno = require 'posix.errno'
 local inotify = require 'inotify'
@@ -18,7 +19,7 @@ local colors = require 'term.colors'
 local term = require 'term'
 local unpack = table.unpack or unpack
 
-local VESION = 'luamon 0.3.2'
+local VESION = 'luamon 0.3.3'
 local options = {}
 local wachedpaths = {}
 local notifyhandle
@@ -30,9 +31,11 @@ local stdout_state = termio.tcgetattr(unistd.STDOUT_FILENO)
 local stderr_state = termio.tcgetattr(unistd.STDERR_FILENO)
 local stdin_tcpgrp = unistd.tcgetpgrp(unistd.STDIN_FILENO)
 local run_finish
+local lastrun = 0
 
 local watch_events = {
   inotify.IN_CLOSE_WRITE,
+  inotify.IN_MODIFY,
   inotify.IN_CREATE,
   inotify.IN_DELETE,
   inotify.IN_DELETE_SELF,
@@ -113,7 +116,7 @@ local function parse_args()
     :action(split_args_action)
   argparser:option('-l --lua',      "Lua binary to run (or any other binary)")
   argparser:option('-c --chdir',    "Change into directory before running the command")
-  argparser:option('-d --delay',    "Delay between restart in seconds")
+  argparser:option('-d --delay',    "Delay between restart in milliseconds")
   argparser:argument("input",       "Input lua script to run")
   argparser:argument("runargs", "Script arguments"):args("*")
   options = argparser:parse()
@@ -347,8 +350,25 @@ local function is_watched_extesion(path)
   end
 end
 
+local function millis()
+  local tmspec = assert(time.clock_gettime(time.CLOCK_MONOTONIC))
+  return tmspec.tv_sec * 1000 + tmspec.tv_nsec / 1000000
+end
+
+local function sleep_until(endmillis)
+  repeat
+    local ramaining = math.max(endmillis - millis(), 0)
+    local tmspec = {
+      tv_sec = math.floor(ramaining / 1000),
+      tv_nsec = math.floor(ramaining % 1000) * 1000000
+    }
+    local sleepret = time.nanosleep(tmspec)
+  until sleepret == 0 or ramaining == 0
+end
+
 local function check_if_should_restart(path)
   if options.only_input then return true end
+  if millis() - lastrun < 20 then return false end -- change is too quick
   if not path or is_ignored(path) then return false end
   if plpath.isdir(path) then
     if not wachedpaths[path] then
@@ -388,18 +408,10 @@ local function wait_restart()
   until restart
 end
 
-local function sleep_until(timeend)
-  repeat
-    local ramaining = math.max(math.ceil(timeend - os.time()), 0)
-    local sleepret = unistd.sleep(ramaining)
-  until sleepret == 0 or ramaining == 0
-end
-
 local function watch_and_restart()
-  local lastrun = 0
   if not options.skip_first then
     run()
-    lastrun = os.time()
+    lastrun = millis()
   else
     colorprintf(colors.yellow, '[luamon] waiting for changes...')
   end
@@ -408,8 +420,12 @@ local function watch_and_restart()
     if options.delay then
       sleep_until(lastrun + options.delay)
     end
+
+    -- give some time to finish writing files
+    sleep_until(millis() + 20)
+
     run()
-    lastrun = os.time()
+    lastrun = millis()
   end
 end
 

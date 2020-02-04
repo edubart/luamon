@@ -43,39 +43,41 @@ with option `-e` you can specify which .
 
 ## Help
 ```
-Usage: luamon [-v] [-q] [-V] [-f] [-s] [-x] [-r] [--no-color]
-       [--no-hup] [-e <ext>] [-w <watch>] [-i <ignore>] [-l <lua>]
-       [-c <chdir>] [-d <delay>] [-h] <input> [<runargs>] ...
+Usage: luamon [-h] [-v] [-q] [-V] [-f] [-o] [-s] [-x] [-r] [-t]
+       [--no-color] [--no-hup] [-e <ext>] [-w <watch>] [-i <ignore>]
+       [-l <lua>] [-c <chdir>] [-d <delay>] <input> [<runargs>] ...
 
-luamon
+luamon 0.3.3
 
 Arguments:
    input                 Input lua script to run
    runargs               Script arguments
 
 Options:
+   -h, --help            Show this help message and exit.
    -v, --version         Print current luamon version and exit
    -q, --quiet           Be quiet, luamon don't print any message
    -V, --verbose         Show details on what is causing restart
    -f, --fail-exit       Exit when the running command fails
+   -o, --only-input      Watch only the input file for changes
    -s, --skip-first      Skip first run (wait for changes before running)
    -x, --exec            Execute a command instead of running lua script
    -r, --restart         Automatically restart upon exit (run forever)
+   -t, --term-clear      Clear terminal before each run
    --no-color            Don't colorize output
    --no-hup              Don't stop when terminal closes (SIGHUP signal)
-      -e <ext>,          Extensions to watch, separated by commas (default: lua)
+      -e <ext>,          Extensions to watch, separated by commas
    --ext <ext>
-        -w <watch>,      Directories to watch, separated by commas (default: .)
+        -w <watch>,      Directories to watch, separated by commas
    --watch <watch>
-         -i <ignore>,    Shell pattern of paths to ignore, separated by commas (default: .*)
+         -i <ignore>,    Shell pattern of paths to ignore, separated by commas
    --ignore <ignore>
-      -l <lua>,          Lua binary to run (or any other binary) (default: lua)
+      -l <lua>,          Lua binary to run (or any other binary)
    --lua <lua>
         -c <chdir>,      Change into directory before running the command
    --chdir <chdir>
-        -d <delay>,      Delay between restart in seconds
+        -d <delay>,      Delay between restart in milliseconds
    --delay <delay>
-   -h, --help            Show this help message and exit.
 ```
 
 ## Limitations
