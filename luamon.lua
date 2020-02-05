@@ -19,7 +19,7 @@ local colors = require 'term.colors'
 local term = require 'term'
 local unpack = table.unpack or unpack
 
-local VERSION = 'luamon 0.4.0'
+local VERSION = 'luamon 0.4.1'
 
 local default_options = {
   watch = {'.'},
@@ -147,7 +147,8 @@ local function parse_args()
 
   for lang,langoptions in pairs(default_lang_options) do
     if lang == options.lang or options.input:match('%.' .. langoptions.ext[1] .. '$') then
-      setmetatable(defoptions, {__index = langoptions})
+      setmetatable(langoptions, {__index = defoptions})
+      defoptions = langoptions
       break
     end
   end
@@ -399,7 +400,7 @@ end
 
 local function check_if_should_restart(path)
   if options.only_input then return true end
-  if millis() - lastrun < 20 then return false end -- change is too quick
+  if millis() - lastrun < 200 then return false end -- change is too recent, ignore
   if not path or is_ignored(path) then return false end
   if plpath.isdir(path) then
     if not wachedpaths[path] then
