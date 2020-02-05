@@ -19,7 +19,30 @@ local colors = require 'term.colors'
 local term = require 'term'
 local unpack = table.unpack or unpack
 
-local VESION = 'luamon 0.3.3'
+local VERSION = 'luamon 0.4.0'
+
+local default_options = {
+  watch = {'.'},
+  ignore = {'.*'},
+}
+
+local default_lang_options = {
+  lua = {
+    ext = {'lua'},
+    lang = 'lua'
+  },
+  nelua = {
+    ext = {'nelua', 'lua'},
+    ignore = {'.*', '*nelua_cache*'},
+    lang = 'nelua'
+  },
+  tcc = {
+    ext = {'c', 'h'},
+    lang = 'tcc',
+    args = '-run'
+  }
+}
+
 local options = {}
 local wachedpaths = {}
 local notifyhandle
@@ -66,7 +89,11 @@ local function build_runcmd()
   if options.exec then
     cmd = options.input
   else
-    cmd = string.format('%s %s', options.lua, options.input)
+    cmd = options.lang .. ' '
+    if options.args then
+      cmd = cmd .. options.args .. ' '
+    end
+    cmd = cmd .. options.input
   end
 
   local args = options.runargs
@@ -84,15 +111,9 @@ local function split_args_action(opts, name, value)
 end
 
 local function parse_args()
-  local argparser = argparse("luamon", VESION)
-  local defoptions = {
-    ext={'lua'},
-    watch={'.'},
-    ignore={'.*'},
-    lua='lua'
-  }
+  local argparser = argparse("luamon", VERSION)
   argparser:flag('-v --version',    "Print current luamon version and exit"):action(function()
-    print(VESION)
+    print(VERSION)
     os.exit(0)
   end)
   argparser:flag('-q --quiet',      "Be quiet, luamon don't print any message")
@@ -106,20 +127,30 @@ local function parse_args()
   argparser:flag('--no-color',      "Don't colorize output")
   argparser:flag('--no-hup',        "Don't stop when terminal closes (SIGHUP signal)")
   argparser:option('-e --ext',
-    "Extensions to watch, separated by commas")
+    "Extensions to watch, separated by commas (default: lua)")
     :action(split_args_action)
   argparser:option('-w --watch',
-    "Directories to watch, separated by commas")
+    "Directories to watch, separated by commas (default: .)")
     :action(split_args_action)
   argparser:option('-i --ignore',
-    "Shell pattern of paths to ignore, separated by commas")
+    "Shell pattern of paths to ignore, separated by commas (default: .*)")
     :action(split_args_action)
-  argparser:option('-l --lua',      "Lua binary to run (or any other binary)")
   argparser:option('-c --chdir',    "Change into directory before running the command")
   argparser:option('-d --delay',    "Delay between restart in milliseconds")
+  argparser:option('-l --lang',     "Language runner to run (default if not detected: lua)")
+  argparser:option('--args',        "Arguments to pass to the language runner")
   argparser:argument("input",       "Input lua script to run")
   argparser:argument("runargs", "Script arguments"):args("*")
   options = argparser:parse()
+
+  local defoptions = default_options
+
+  for lang,langoptions in pairs(default_lang_options) do
+    if lang == options.lang or options.input:match('%.' .. langoptions.ext[1] .. '$') then
+      setmetatable(defoptions, {__index = langoptions})
+      break
+    end
+  end
 
   if plpath.exists('.luamonrc') then
     local rcoptions = {}
@@ -131,8 +162,8 @@ local function parse_args()
     if not ok then
       error(string.format('failed to load luamonrc:\n%s', err))
     end
-    setmetatable(options, {__index = rcoptions})
     setmetatable(rcoptions, {__index = defoptions})
+    setmetatable(options, {__index = rcoptions})
   else
     setmetatable(options, {__index = defoptions})
   end

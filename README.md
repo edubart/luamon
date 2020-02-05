@@ -2,7 +2,7 @@
 Luamon is a utility that will monitor for any changes in your sources and automatically restart it. Best used for live development. It works by
 watching for file and directories changes using the `inotify` API.
 
-It was inspirated by nodemon, but made for Lua.
+It was inspirited by nodemon, but made for Lua.
 
 ## Features
 
@@ -45,9 +45,10 @@ with option `-e` you can specify which .
 ```
 Usage: luamon [-h] [-v] [-q] [-V] [-f] [-o] [-s] [-x] [-r] [-t]
        [--no-color] [--no-hup] [-e <ext>] [-w <watch>] [-i <ignore>]
-       [-l <lua>] [-c <chdir>] [-d <delay>] <input> [<runargs>] ...
+       [-c <chdir>] [-d <delay>] [-l <lang>] [--args <args>] <input>
+       [<runargs>] ...
 
-luamon 0.3.3
+luamon 0.4.0
 
 Arguments:
    input                 Input lua script to run
@@ -66,18 +67,19 @@ Options:
    -t, --term-clear      Clear terminal before each run
    --no-color            Don't colorize output
    --no-hup              Don't stop when terminal closes (SIGHUP signal)
-      -e <ext>,          Extensions to watch, separated by commas
+      -e <ext>,          Extensions to watch, separated by commas (default: lua)
    --ext <ext>
-        -w <watch>,      Directories to watch, separated by commas
+        -w <watch>,      Directories to watch, separated by commas (default: .)
    --watch <watch>
-         -i <ignore>,    Shell pattern of paths to ignore, separated by commas
+         -i <ignore>,    Shell pattern of paths to ignore, separated by commas (default: .*)
    --ignore <ignore>
-      -l <lua>,          Lua binary to run (or any other binary)
-   --lua <lua>
         -c <chdir>,      Change into directory before running the command
    --chdir <chdir>
         -d <delay>,      Delay between restart in milliseconds
    --delay <delay>
+       -l <lang>,        Language binary to run (default if not detected: lua)
+   --lang <lang>
+   --args <args>         Arguments to pass to the language binary
 ```
 
 ## Limitations
