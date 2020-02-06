@@ -1,19 +1,21 @@
 # Luamon
-Luamon is a utility that will monitor for any changes in your sources and automatically restart it. Best used for live development. It works by
-watching for file and directories changes using the `inotify` API.
 
-It was inspirited by nodemon, but made for Lua.
+Luamon is a utility for quick live development in Lua.
+It will monitor for any changes in your source and automatically restart your Lua script or application.
+It works by watching for file and directories changes using the [inotify API](https://en.wikipedia.org/wiki/Inotify).
+It was inspirited by [nodemon](https://nodemon.io/), but made for Lua.
 
 ## Features
 
-* Default support for lua scripts, but easy to run any executable (such as other langs, make, etc)
-* Ignoring specific files or directories
-* Watch specific directories
+* Automatic restarting of application.
+* Default for lua, but easy to run any executable (such as python, make, etc).
+* Ignoring specific files or directories.
+* Watch specific directories.
 * Works with server applications or one time run utilities and REPLs.
 
 ## Installation
 
-Install it using luarocks.
+Install using [LuaRocks](https://luarocks.org/):
 
 ```bash
 luarocks install luamon
@@ -33,22 +35,34 @@ You can pass arguments to the script after `--`:
 luamon myscript.lua -- --arg1 arg2
 ```
 
-Alternativily you can run any command with `-x`:
+You can run with different lua binary with `-l`:
+
+```bash
+luamon -l luajit myscript.lua
+```
+
+By default it watches for any `.lua` file change in the working directory and runs `lua`.
+Alternatively you can monitor different extensions with `-e` and run any command with `-x`:
+
 ```bash
 luamon -e js -x "nodejs app.js my args"
 ```
 
-By default it watches for any lua file change in the working directory,
-with option `-e` you can specify which .
+You could use for quick compile and testing C applications to:
+
+```bash
+luamon -e c,h -x "make && make test"
+```
 
 ## Help
+
 ```
 Usage: luamon [-h] [-v] [-q] [-V] [-f] [-o] [-s] [-x] [-r] [-t]
        [--no-color] [--no-hup] [-e <ext>] [-w <watch>] [-i <ignore>]
        [-c <chdir>] [-d <delay>] [-l <lang>] [--args <args>] <input>
        [<runargs>] ...
 
-luamon 0.4.1
+luamon
 
 Arguments:
    input                 Input lua script to run
@@ -84,7 +98,7 @@ Options:
 
 ## Limitations
 
-The packages depends on POSIX and [Inotify](https://en.wikipedia.org/wiki/Inotify) API so it works only on systems that supports them, such as Linux.
+The packages depends on POSIX and Inotify APIs so it works only on systems that supports them, such as Linux.
 
 ## License
 MIT
