@@ -5,6 +5,8 @@ It will monitor for any changes in your source and automatically restart your Lu
 It works by watching for file and directories changes using the [inotify API](https://en.wikipedia.org/wiki/Inotify).
 It was inspirited by [nodemon](https://nodemon.io/), but made for Lua.
 
+[![asciicast](https://asciinema.org/a/eYx200v7YnHxSWqVet5yjnBpS.svg)](https://asciinema.org/a/eYx200v7YnHxSWqVet5yjnBpS)
+
 ## Features
 
 * Automatic restarting of application.
