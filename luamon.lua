@@ -19,18 +19,16 @@ local colors = require 'term.colors'
 local term = require 'term'
 local unpack = table.unpack or unpack
 
-local VERSION = 'luamon 0.4.1'
+local VERSION = 'luamon 0.4.2'
 
 local default_options = {
   watch = {'.'},
   ignore = {'.*'},
+  ext = {'lua'},
+  lang = 'lua'
 }
 
-local default_lang_options = {
-  lua = {
-    ext = {'lua'},
-    lang = 'lua'
-  },
+local other_lang_options = {
   nelua = {
     ext = {'nelua', 'lua'},
     ignore = {'.*', '*nelua_cache*'},
@@ -145,7 +143,7 @@ local function parse_args()
 
   local defoptions = default_options
 
-  for lang,langoptions in pairs(default_lang_options) do
+  for lang,langoptions in pairs(other_lang_options) do
     if lang == options.lang or options.input:match('%.' .. langoptions.ext[1] .. '$') then
       setmetatable(langoptions, {__index = defoptions})
       defoptions = langoptions
