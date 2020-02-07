@@ -3,7 +3,7 @@
 Luamon is a utility for quick live development in Lua.
 It will monitor for any changes in your source and automatically restart your Lua script or application.
 It works by watching for file and directories changes using the [inotify API](https://en.wikipedia.org/wiki/Inotify).
-It was inspirited by [nodemon](https://nodemon.io/), but made for Lua.
+It was inspired by [nodemon](https://nodemon.io/), but made for Lua.
 
 [![asciicast](https://asciinema.org/a/eYx200v7YnHxSWqVet5yjnBpS.svg)](https://asciinema.org/a/eYx200v7YnHxSWqVet5yjnBpS)
 
