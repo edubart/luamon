@@ -376,7 +376,7 @@ local function is_watched_extension(path)
   local filename = plpath.basename(path)
   local fileext = plpath.extension(path)
   for _,ext in ipairs(options.ext) do
-    if filename == ext or fileext == ext then
+    if filename == ext or fileext == '.'..ext then
       return true
     end
   end
