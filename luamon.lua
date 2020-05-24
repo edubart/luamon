@@ -19,7 +19,7 @@ local colors = require 'term.colors'
 local term = require 'term'
 local unpack = table.unpack or unpack
 
-local VERSION = 'luamon 0.4.3'
+local VERSION = 'luamon 0.4.4'
 
 local default_options = {
   watch = {'.'},
