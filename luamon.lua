@@ -372,12 +372,15 @@ function run_finish()
   end
 end
 
-local function is_watched_extesion(path)
+local function is_watched_extension(path)
+  local filename = plpath.basename(path)
+  local fileext = plpath.extension(path)
   for _,ext in ipairs(options.ext) do
-    if stringx.endswith(path, '.' .. ext) then
+    if filename == ext or fileext == ext then
       return true
     end
   end
+  return false
 end
 
 local function millis()
@@ -405,12 +408,12 @@ local function check_if_should_restart(path)
       addwatch(path)
     end
     for name in lfs.dir(path) do
-      if is_watched_extesion(name) then
+      if is_watched_extension(name) then
         return true
       end
     end
   end
-  return is_watched_extesion(path)
+  return is_watched_extension(path)
 end
 
 local function wait_restart()

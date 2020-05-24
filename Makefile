@@ -1,13 +1,4 @@
-LUAEXE=lua
 ROCKSPEC=rocks/luamon-*.rockspec
-
-test:
-	lua test.lua
-
-test-all:
-	$(MAKE) test
-	$(MAKE) LUAINC=/usr/include/luajit-2.1 LUAEXE=luajit test
-	$(MAKE) LUAINC=/usr/include/lua5.1 LUAEXE=lua5.1 test
 
 test-rocks:
 	luarocks make --lua-version=5.3 --local $(ROCKSPEC)
