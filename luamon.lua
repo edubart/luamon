@@ -36,8 +36,7 @@ local other_lang_options = {
   },
   tcc = {
     ext = {'c', 'h'},
-    lang = 'tcc',
-    args = '-run'
+    lang = 'tcc -run'
   }
 }
 
@@ -83,25 +82,34 @@ local function colorprintf(color, format, ...)
 end
 
 local function build_runcmd()
-  local cmd
-  if options.exec then
-    cmd = options.input
-  else
-    cmd = options.lang .. ' '
-    if options.args then
-      cmd = cmd .. options.args .. ' '
-    end
-    cmd = cmd .. options.input
-  end
-
-  local args = options.runargs
+  local argscmd = ''
+  local args = options.args
   if args and #args > 0 then
     for i,arg in ipairs(args) do
       args[i] = plutil.quote_arg(arg)
     end
-    cmd = cmd .. ' ' .. table.concat(args, ' ')
+    argscmd = table.concat(args, ' ')
   end
+
+  local cmd
+  if options.exec then
+    cmd = options.input
+  else
+    if options.lang:match('<input>') then
+      cmd = options.lang:gsub('<input>', options.input)
+      if cmd:match('<args>') then
+        cmd = cmd:gsub('<args>', argscmd)
+        argscmd = ''
+      end
+    else
+      cmd = options.lang .. ' ' .. options.input
+    end
+  end
+
   runcmd = cmd
+  if #argscmd > 0 then
+    runcmd = runcmd .. ' ' .. argscmd
+  end
 end
 
 local function split_args_action(opts, name, value)
@@ -136,9 +144,8 @@ local function parse_args()
   argparser:option('-c --chdir',    "Change into directory before running the command")
   argparser:option('-d --delay',    "Delay between restart in milliseconds")
   argparser:option('-l --lang',     "Language runner to run (default if not detected: lua)")
-  argparser:option('--args',        "Arguments to pass to the language runner")
   argparser:argument("input",       "Input lua script to run")
-  argparser:argument("runargs", "Script arguments"):args("*")
+  argparser:argument("args",        "Script arguments"):args("*")
   options = argparser:parse()
 
   local defoptions = default_options

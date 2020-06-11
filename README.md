@@ -37,24 +37,58 @@ You can pass arguments to the script after `--`:
 luamon myscript.lua -- --arg1 arg2
 ```
 
-You can run with different lua binary with `-l`:
+You can run with a different lua or any other language runner with `-l`:
 
 ```bash
 luamon -l luajit myscript.lua
 ```
 
 By default it watches for any `.lua` file change in the working directory and runs `lua`.
-Alternatively you can monitor different extensions with `-e` and run any command with `-x`:
+
+Alternatively you can monitor different extensions with `-e`, for running python scripts
+for example you could do:
+
+```bash
+luamon -l python3 -e py myscript.py
+```
+
+Alternatively you can run any command with `-x`:
 
 ```bash
 luamon -e js -x "nodejs app.js my args"
 ```
 
-You could use for quick compile and testing C applications to:
+You could use for quick compile and testing C applications too:
 
 ```bash
 luamon -e c,h -x "make && make test"
 ```
+
+## Advanced Usage
+
+You can make more complex commands for live coding and testing:
+
+```bash
+luamon -e c,h,Makefile -l "make <input> && ./build/<input> <args>" example hello
+```
+
+The above calls `make example && ./build/example hello` on every `.h`, `.c` or `Makefile` file change.
+
+These options or any other can be saved to a config file called `.luamonrc`
+in the same project folder, for example:
+
+```bash
+ext = {'h', 'c', 'Makefile'}
+lang = "make <input> && ./build/<input> <args>"
+```
+
+Then you can just call:
+
+```bash
+luamon example
+```
+
+And will run as the example before.
 
 ## Help
 
@@ -95,7 +129,6 @@ Options:
    --delay <delay>
        -l <lang>,        Language binary to run (default if not detected: lua)
    --lang <lang>
-   --args <args>         Arguments to pass to the language binary
 ```
 
 ## Limitations
