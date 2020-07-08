@@ -1,3 +1,4 @@
 .vscode
 *.rock
-play.lua
+play
+play.*

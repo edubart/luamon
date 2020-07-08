@@ -43,9 +43,11 @@ You can run with a different lua or any other language runner with `-l`:
 luamon -l luajit myscript.lua
 ```
 
-By default it watches for any `.lua` file change in the working directory and runs `lua`.
+By default luamon tries to detect the language to be run and watches file extensions based
+on the detect language, for example in case you to run some file with `.lua` extension
+hen it watches for any `.lua` file change in the working directory and runs `lua`.
 
-Alternatively you can monitor different extensions with `-e`, for running python scripts
+Alternatively you can monitor different extensions with `-e`, for running python3 scripts
 for example you could do:
 
 ```bash
@@ -74,8 +76,8 @@ luamon -e c,h,Makefile -l "make <input> && ./build/<input> <args>" example hello
 
 The above calls `make example && ./build/example hello` on every `.h`, `.c` or `Makefile` file change.
 
-These options or any other can be saved to a config file called `.luamonrc`
-in the same project folder, for example:
+Any option can be saved to a config file globally called `.luamonrc` in the user home folder
+or locally in the running folder, for example:
 
 ```bash
 ext = {'h', 'c', 'Makefile'}
@@ -90,34 +92,46 @@ luamon example
 
 And will run as the example before.
 
+You can override the languages to be detected in that config too, for example to make it uses
+always lua5.4 and python3 upon detection:
+
+```bash
+langs = {
+  lua = {lang = 'lua5.4', ext = {'lua'}},
+  python = {lang = 'python3', ext = {'py'}, ignore = {'.*', '*__pycache__*'}},
+}
+```
+
+Some common languages comes pre configured like Lua, Python and Ruby,
+for all see the default config in luamon sources.
+
 ## Help
 
 ```
 Usage: luamon [-h] [-v] [-q] [-V] [-f] [-o] [-s] [-x] [-r] [-t]
        [--no-color] [--no-hup] [-e <ext>] [-w <watch>] [-i <ignore>]
-       [-c <chdir>] [-d <delay>] [-l <lang>] [--args <args>] <input>
-       [<runargs>] ...
+       [-c <chdir>] [-d <delay>] [-l <lang>] <input> [<args>] ...
 
 luamon
 
 Arguments:
-   input                 Input lua script to run
-   runargs               Script arguments
+   input                 Input script to run
+   args                  Script arguments
 
 Options:
    -h, --help            Show this help message and exit.
    -v, --version         Print current luamon version and exit
-   -q, --quiet           Be quiet, luamon don't print any message
+   -q, --quiet           Be quiet, don't print any message
    -V, --verbose         Show details on what is causing restart
    -f, --fail-exit       Exit when the running command fails
    -o, --only-input      Watch only the input file for changes
    -s, --skip-first      Skip first run (wait for changes before running)
-   -x, --exec            Execute a command instead of running lua script
+   -x, --exec            Execute a command instead of running a script
    -r, --restart         Automatically restart upon exit (run forever)
    -t, --term-clear      Clear terminal before each run
    --no-color            Don't colorize output
    --no-hup              Don't stop when terminal closes (SIGHUP signal)
-      -e <ext>,          Extensions to watch, separated by commas (default: lua)
+      -e <ext>,          Extensions to watch, separated by commas (auto detected by default)
    --ext <ext>
         -w <watch>,      Directories to watch, separated by commas (default: .)
    --watch <watch>
@@ -127,7 +141,7 @@ Options:
    --chdir <chdir>
         -d <delay>,      Delay between restart in milliseconds
    --delay <delay>
-       -l <lang>,        Language binary to run (default if not detected: lua)
+       -l <lang>,        Language runner to run (auto detected by default)
    --lang <lang>
 ```
 

@@ -36,6 +36,7 @@ local pldir = require 'pl.dir'
 local plutil = require 'pl.utils'
 local compat = require 'pl.compat'
 local stringx = require 'pl.stringx'
+local tablex = require 'pl.tablex'
 local signal = require 'posix.signal'
 local unistd = require 'posix.unistd'
 local wait = require 'posix.sys.wait'
@@ -51,26 +52,24 @@ local unpack = table.unpack or unpack
 
 local VERSION = 'luamon 0.4.4'
 
-local default_options = {
+local config = {
   watch = {'.'},
   ignore = {'.*'},
-  ext = {'lua'},
-  lang = 'lua'
-}
-
-local other_lang_options = {
-  nelua = {
-    ext = {'nelua', 'lua'},
-    ignore = {'.*', '*nelua_cache*'},
-    lang = 'nelua'
-  },
-  tcc = {
-    ext = {'c', 'h'},
-    lang = 'tcc -run'
+  langs = {
+    lua = {lang = 'lua', ext = {'lua'}},
+    python = {lang = 'python', ext = {'py'}, ignore = {'.*', '*__pycache__*'}},
+    ruby = {lang = 'ruby', ext = {'rb'}},
+    node = {lang = 'node', ext = {'js'}},
+    c = {lang = 'tcc -run', ext = {'c', 'h'}},
+    cpp = {lang = 'g++ -o /tmp/a.out <input> && /tmp/a.out <args>', ext = {'cpp', 'h'}},
+    swift = {lang = 'swift', ext = {'swift'}},
+    zig = {lang = 'zig run', ext = {'zig'}},
+    nim = {lang = 'nim c -r', ext = {'nim'}},
+    shell = {lang = 'sh', ext = {'sh'}},
+    nelua = {lang = 'nelua', ext = {'nelua', 'lua'}, ignore = {'.*', '*nelua_cache*'}},
   }
 }
 
-local options = {}
 local wachedpaths = {}
 local notifyhandle
 local notifyrunterm
@@ -100,11 +99,11 @@ local function colorprintf(color, format, ...)
   else
     message = format
   end
-  if not options.no_color then
+  if not config.no_color then
     io.stderr:write(tostring(color))
   end
   io.stderr:write(message)
-  if not options.no_color then
+  if not config.no_color then
     io.stderr:write(tostring(colors.reset))
   end
   io.stderr:write('\n')
@@ -113,7 +112,7 @@ end
 
 local function build_runcmd()
   local argscmd = ''
-  local args = options.args
+  local args = config.args
   if args and #args > 0 then
     for i,arg in ipairs(args) do
       args[i] = plutil.quote_arg(arg)
@@ -122,17 +121,17 @@ local function build_runcmd()
   end
 
   local cmd
-  if options.exec then
-    cmd = options.input
+  if config.exec then
+    cmd = config.input
   else
-    if options.lang:match('<input>') then
-      cmd = options.lang:gsub('<input>', options.input)
+    if config.lang:match('<input>') then
+      cmd = config.lang:gsub('<input>', config.input)
       if cmd:match('<args>') then
         cmd = cmd:gsub('<args>', argscmd)
         argscmd = ''
       end
     else
-      cmd = options.lang .. ' ' .. options.input
+      cmd = config.lang .. ' ' .. config.input
     end
   end
 
@@ -146,66 +145,78 @@ local function split_args_action(opts, name, value)
   opts[name] = stringx.split(value, ',')
 end
 
+local function loadrc(rcfilename)
+  if not plpath.exists(rcfilename) then
+    return
+  end
+  local rconfig = {}
+  local rcfunc, err = compat.load(plfile.read(rcfilename), '@.luamonrc', "t", rconfig)
+  local ok
+  if rcfunc then
+    ok, err = pcall(rcfunc)
+  end
+  if not ok then
+    error(string.format('failed to load luamonrc:\n%s', err))
+  end
+  tablex.update(config, rconfig)
+end
+
 local function parse_args()
   local argparser = argparse("luamon", VERSION)
   argparser:flag('-v --version',    "Print current luamon version and exit"):action(function()
     print(VERSION)
     os.exit(0)
   end)
-  argparser:flag('-q --quiet',      "Be quiet, luamon don't print any message")
+
+  argparser:flag('-q --quiet',      "Be quiet, don't print any message")
   argparser:flag('-V --verbose',    "Show details on what is causing restart")
   argparser:flag('-f --fail-exit',  "Exit when the running command fails")
   argparser:flag('-o --only-input', "Watch only the input file for changes")
   argparser:flag('-s --skip-first', "Skip first run (wait for changes before running)")
-  argparser:flag('-x --exec',       "Execute a command instead of running lua script")
+  argparser:flag('-x --exec',       "Execute a command instead of running a script")
   argparser:flag('-r --restart',    "Automatically restart upon exit (run forever)")
   argparser:flag('-t --term-clear', "Clear terminal before each run")
   argparser:flag('--no-color',      "Don't colorize output")
   argparser:flag('--no-hup',        "Don't stop when terminal closes (SIGHUP signal)")
   argparser:option('-e --ext',
-    "Extensions to watch, separated by commas (default: lua)")
+    "Extensions to watch, separated by commas (auto detected by default)")
     :action(split_args_action)
-  argparser:option('-w --watch',
-    "Directories to watch, separated by commas (default: .)")
+  argparser:option('-w --watch', "Directories to watch, separated by commas (default: .)")
     :action(split_args_action)
   argparser:option('-i --ignore',
     "Shell pattern of paths to ignore, separated by commas (default: .*)")
     :action(split_args_action)
   argparser:option('-c --chdir',    "Change into directory before running the command")
   argparser:option('-d --delay',    "Delay between restart in milliseconds")
-  argparser:option('-l --lang',     "Language runner to run (default if not detected: lua)")
-  argparser:argument("input",       "Input lua script to run")
+  argparser:option('-l --lang',     "Language runner to run (auto detected by default)")
+  argparser:argument("input",       "Input script to run")
   argparser:argument("args",        "Script arguments"):args("*")
-  options = argparser:parse()
+  local options = argparser:parse()
 
-  local defoptions = default_options
+  -- read personal user config
+  loadrc(plpath.expanduser('~/.luamonrc'))
+  loadrc('.luamonrc')
 
-  for lang,langoptions in pairs(other_lang_options) do
-    if lang == options.lang or options.input:match('%.' .. langoptions.ext[1] .. '$') then
-      setmetatable(langoptions, {__index = defoptions})
-      defoptions = langoptions
+  -- read detected language default config
+  for lang,langconfig in pairs(config.langs) do
+    if options.lang == lang or
+       options.lang == langconfig.lang or
+       options.input:match('%.' .. langconfig.ext[1] .. '$') then
+      tablex.update(config, langconfig)
       break
     end
   end
 
-  if plpath.exists('.luamonrc') then
-    local rcoptions = {}
-    local rcfunc, err = compat.load(plfile.read('.luamonrc'), '@.luamonrc', "t", rcoptions)
-    local ok
-    if rcfunc then
-      ok, err = pcall(rcfunc)
-    end
-    if not ok then
-      error(string.format('failed to load luamonrc:\n%s', err))
-    end
-    setmetatable(rcoptions, {__index = defoptions})
-    setmetatable(options, {__index = rcoptions})
-  else
-    setmetatable(options, {__index = defoptions})
+  -- read parsed config
+  tablex.update(config, options)
+
+  if not config.lang then
+    colorprintf(colors.red, "[luamon] could not detect which language to run")
+    os.exit(1)
   end
 
-  if options.chdir then
-    options.chdir = plpath.abspath(options.chdir)
+  if config.chdir then
+    config.chdir = plpath.abspath(config.chdir)
   end
 end
 
@@ -278,7 +289,7 @@ local function setup_signal_handler(child)
     signal.signal(signal.SIGCHLD, parent_handle_child_signal)
     signal.signal(signal.SIGINT, parent_handle_signal)
     signal.signal(signal.SIGTERM, parent_handle_signal)
-    if not options.no_hup then
+    if not config.no_hup then
       signal.signal(signal.SIGHUP, parent_handle_signal)
     end
   else
@@ -286,7 +297,7 @@ local function setup_signal_handler(child)
     signal.signal(signal.SIGCHLD, signal.SIG_DFL)
     signal.signal(signal.SIGINT, signal.SIG_DFL)
     signal.signal(signal.SIGTERM, signal.SIG_DFL)
-    if not options.no_hup then
+    if not config.no_hup then
       signal.signal(signal.SIGHUP, signal.SIG_DFL)
     end
   end
@@ -294,7 +305,7 @@ end
 
 local function is_ignored(name)
   if name == '.' or name == '..' then return true end
-  for _,patt in ipairs(options.ignore) do
+  for _,patt in ipairs(config.ignore) do
     if pldir.fnmatch(name, patt) then
       return true
     end
@@ -303,7 +314,7 @@ local function is_ignored(name)
 end
 
 local function addwatch(path)
-  if options.verbose then
+  if config.verbose then
     colorprintf(colors.yellow, '[luamon] added watch to %s', path)
   end
   if not plpath.exists(path) then
@@ -328,25 +339,25 @@ local function watch(path)
 end
 
 local function setup_watch_dirs()
-  if options.only_input then
-    if options.exec then
+  if config.only_input then
+    if config.exec then
       exiterror("option --only-input cannot be used with --exec option")
     end
-    if #options.watch ~= 1 or options.watch[1] ~= '.' then
+    if #config.watch ~= 1 or config.watch[1] ~= '.' then
       exiterror("option --only-input cannot be used with --watch option")
     end
-    local path = plpath.abspath(options.input)
+    local path = plpath.abspath(config.input)
     assert(plpath.exists(path), "input file not found")
-    if not options.quiet then
+    if not config.quiet then
       colorprintf(colors.yellow, '[luamon] watching "%s"', path)
     end
     watch(path)
     return
   end
 
-  for _,dir in ipairs(options.watch) do
+  for _,dir in ipairs(config.watch) do
     local path = plpath.abspath(dir)
-    if not options.quiet then
+    if not config.quiet then
       colorprintf(colors.yellow, '[luamon] watching "%s"', path)
     end
     watch(path)
@@ -370,13 +381,13 @@ local function forkexecute(cmd)
 end
 
 local function run()
-  if options.chdir then
-    plpath.chdir(options.chdir)
+  if config.chdir then
+    plpath.chdir(config.chdir)
   end
-  if not options.quiet then
+  if not config.quiet then
     colorprintf(colors.yellow, '[luamon] starting `%s`', runcmd)
   end
-  if options.term_clear then
+  if config.term_clear then
     term.clear()
     term.cursor.jump(1, 1)
   end
@@ -389,30 +400,30 @@ function run_finish()
   runpid = nil
   if reason == 'exited' then
     if status ~= 0 then
-      if options.fail_exit then
-        if not options.quiet then
+      if config.fail_exit then
+        if not config.quiet then
           colorprintf(colors.red, '[luamon] exited with code %d', status)
         end
         terminate_inotify()
         exit(status)
-      elseif not options.quiet then
+      elseif not config.quiet then
         colorprintf(colors.red, '[luamon] exited with code %d', status)
-        return options.restart
+        return config.restart
       end
-    elseif not options.quiet then
+    elseif not config.quiet then
       colorprintf(colors.green, '[luamon] clean exit')
-      return options.restart
+      return config.restart
     end
   elseif reason == 'killed' then
     colorprintf(colors.magenta, '[luamon] killed')
-    return options.restart
+    return config.restart
   end
 end
 
 local function is_watched_extension(path)
   local filename = plpath.basename(path)
   local fileext = plpath.extension(path)
-  for _,ext in ipairs(options.ext) do
+  for _,ext in ipairs(config.ext) do
     if filename == ext or fileext == '.'..ext then
       return true
     end
@@ -437,7 +448,7 @@ local function sleep_until(endmillis)
 end
 
 local function check_if_should_restart(path)
-  if options.only_input then return true end
+  if config.only_input then return true end
   if millis() - lastrun < 200 then return false end -- change is too recent, ignore
   if not path or is_ignored(path) then return false end
   if plpath.isdir(path) then
@@ -461,7 +472,7 @@ local function wait_restart()
       for _,ev in ipairs(events) do
         local name = ev.name
         if check_if_should_restart(name) then
-          if options.verbose then
+          if config.verbose then
             colorprintf(colors.yellow, '[luamon] %s changed', ev.name)
           end
           run_finish()
@@ -479,7 +490,7 @@ local function wait_restart()
 end
 
 local function watch_and_restart()
-  if not options.skip_first then
+  if not config.skip_first then
     run()
     lastrun = millis()
   else
@@ -487,8 +498,8 @@ local function watch_and_restart()
   end
   while true do
     wait_restart()
-    if options.delay then
-      sleep_until(lastrun + options.delay)
+    if config.delay then
+      sleep_until(lastrun + config.delay)
     end
 
     -- give some time to finish writing files
