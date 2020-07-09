@@ -45,13 +45,19 @@ luamon -l luajit myscript.lua
 
 By default luamon tries to detect the language to be run and watches file extensions based
 on the detect language, for example in case you to run some file with `.lua` extension
-hen it watches for any `.lua` file change in the working directory and runs `lua`.
+then it watches for any `.lua` file change in the working directory and runs `lua`.
 
 Alternatively you can monitor different extensions with `-e`, for running python3 scripts
 for example you could do:
 
 ```bash
 luamon -l python3 -e py myscript.py
+```
+
+Although you can just run python scripts by doing:
+
+```bash
+luamon myscript.py
 ```
 
 Alternatively you can run any command with `-x`:

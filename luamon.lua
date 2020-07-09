@@ -198,20 +198,27 @@ local function parse_args()
   loadrc('.luamonrc')
 
   -- read detected language default config
-  for lang,langconfig in pairs(config.langs) do
-    if options.lang == lang or
-       options.lang == langconfig.lang or
-       options.input:match('%.' .. langconfig.ext[1] .. '$') then
-      tablex.update(config, langconfig)
-      break
+  if not config.lang and not config.exec then
+    for lang,langconfig in pairs(config.langs) do
+      if options.lang == lang or
+         options.lang == langconfig.lang or
+         options.input:match('%.' .. langconfig.ext[1] .. '$') then
+        tablex.update(config, langconfig)
+        break
+      end
     end
   end
 
   -- read parsed config
   tablex.update(config, options)
 
-  if not config.lang then
-    colorprintf(colors.red, "[luamon] could not detect which language to run")
+  if not config.lang and not config.exec then
+    colorprintf(colors.red, "[luamon] could not detect language to run (missing -l?)")
+    os.exit(1)
+  end
+
+  if not config.ext then
+    colorprintf(colors.red, "[luamon] could not detect file extension to watch (missing -e?)")
     os.exit(1)
   end
 
