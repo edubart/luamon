@@ -149,8 +149,7 @@ local function loadrc(rcfilename)
   if not plpath.exists(rcfilename) then
     return
   end
-  local rconfig = {}
-  local rcfunc, err = compat.load(plfile.read(rcfilename), '@.luamonrc', "t", rconfig)
+  local rcfunc, err = compat.load(plfile.read(rcfilename), '@.luamonrc', "t", config)
   local ok
   if rcfunc then
     ok, err = pcall(rcfunc)
@@ -158,7 +157,6 @@ local function loadrc(rcfilename)
   if not ok then
     error(string.format('failed to load luamonrc:\n%s', err))
   end
-  tablex.update(config, rconfig)
 end
 
 local function parse_args()
