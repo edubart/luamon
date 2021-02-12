@@ -23,6 +23,11 @@ Install using [LuaRocks](https://luarocks.org/):
 luarocks install luamon
 ```
 
+On Ubuntu you may have to install with:
+```bash
+luarocks install luamon INOTIFY_INCDIR=/usr/include/x86_64-linux-gnu
+```
+
 ## Example Usage
 
 Make sure that you have luarocks binary `PATH` in your environment.
