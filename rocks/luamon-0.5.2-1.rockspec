@@ -19,6 +19,7 @@ dependencies = {
   'luafilesystem >= 1.7.0',
   'argparse >= 0.6.0',
   'inotify >= 0.5.0',
+  'penlight >= 1.7.0',
   'lua-term >= 0.7'
 }
 build = {
