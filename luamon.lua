@@ -145,6 +145,22 @@ local function split_args_action(opts, name, value)
   opts[name] = stringx.split(value, ',')
 end
 
+local function millis()
+  local tmspec = assert(time.clock_gettime(time.CLOCK_MONOTONIC))
+  return tmspec.tv_sec * 1000 + tmspec.tv_nsec / 1000000
+end
+
+local function sleep_until(endmillis)
+  repeat
+    local ramaining = math.max(endmillis - millis(), 0)
+    local tmspec = {
+      tv_sec = math.floor(ramaining / 1000),
+      tv_nsec = math.floor(ramaining % 1000) * 1000000
+    }
+    local sleepret = time.nanosleep(tmspec)
+  until sleepret == 0 or ramaining == 0
+end
+
 local function loadrc(rcfilename)
   if not plpath.exists(rcfilename) then
     return
@@ -185,7 +201,8 @@ local function parse_args()
     "Shell pattern of paths to ignore, separated by commas (default: .*)")
     :action(split_args_action)
   argparser:option('-c --chdir',    "Change into directory before running the command")
-  argparser:option('-d --delay',    "Delay between restart in milliseconds")
+  argparser:option('-d --delay',    "Delay between restart (in milliseconds)")
+  argparser:option('-k --kill-delay', "Delay to kill application after trying to close (in milliseconds)", 20)
   argparser:option('-l --lang',     "Language runner to run (auto detected by default)")
   argparser:argument("input",       "Input script to run")
   argparser:argument("args",        "Script arguments"):args("*")
@@ -247,15 +264,20 @@ end
 
 local function kill_wait(pid)
   -- kill child if running
-  local _, reason, status = wait.wait(pid, wait.WNOHANG)
+  local wpid, reason, status = wait.wait(-pid, wait.WNOHANG)
   if reason == 'running' then
+    -- try to terminate children process gracefully
+    signal.kill(-pid, signal.SIGINT)
+
+    -- give some time to process the interrupt signal
+    sleep_until(millis() + config.kill_delay)
+
     -- kill child process group
     signal.kill(-pid, signal.SIGKILL)
 
-    -- wait child
+    -- wait child process group
     repeat
-      local wpid
-      wpid, reason, status = wait.wait(pid)
+      wpid, reason, status = wait.wait(-pid)
       if not wpid then
         assert(status == errno.EINTR, reason)
       else
@@ -436,22 +458,6 @@ local function is_watched_extension(path)
   return false
 end
 
-local function millis()
-  local tmspec = assert(time.clock_gettime(time.CLOCK_MONOTONIC))
-  return tmspec.tv_sec * 1000 + tmspec.tv_nsec / 1000000
-end
-
-local function sleep_until(endmillis)
-  repeat
-    local ramaining = math.max(endmillis - millis(), 0)
-    local tmspec = {
-      tv_sec = math.floor(ramaining / 1000),
-      tv_nsec = math.floor(ramaining % 1000) * 1000000
-    }
-    local sleepret = time.nanosleep(tmspec)
-  until sleepret == 0 or ramaining == 0
-end
-
 local function check_if_should_restart(path)
   if config.only_input then return true end
   if millis() - lastrun < 200 then return false end -- change is too recent, ignore
@@ -470,6 +476,7 @@ local function check_if_should_restart(path)
 end
 
 local function wait_restart()
+  local changemillis
   repeat
     local restart = false
     local events, reason, errcode = notifyhandle:read()
@@ -477,6 +484,7 @@ local function wait_restart()
       for _,ev in ipairs(events) do
         local name = ev.name
         if check_if_should_restart(name) then
+          changemillis = millis()
           if config.verbose then
             colorprintf(colors.yellow, '[luamon] %s changed', ev.name)
           end
@@ -492,6 +500,7 @@ local function wait_restart()
       error(reason)
     end
   until restart
+  return changemillis
 end
 
 local function watch_and_restart()
@@ -502,13 +511,15 @@ local function watch_and_restart()
     colorprintf(colors.yellow, '[luamon] waiting for changes...')
   end
   while true do
-    wait_restart()
+    local changemillis = wait_restart()
+    if changemillis then
+      -- give some time to finish writing files
+      sleep_until(changemillis + 20)
+    end
     if config.delay then
+      -- give some time between application startups
       sleep_until(lastrun + config.delay)
     end
-
-    -- give some time to finish writing files
-    sleep_until(millis() + 20)
 
     run()
     lastrun = millis()
