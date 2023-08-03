@@ -71,6 +71,7 @@ local config = {
 }
 
 local wachedpaths = {}
+local pathbywd = {}
 local notifyhandle
 local notifyrunterm
 local runcmd
@@ -347,7 +348,8 @@ local function addwatch(path)
   if not plpath.exists(path) then
     exiterror("[luamon] path '%s' does not exists for watching", path)
   end
-  assert(notifyhandle:addwatch(path, unpack(watch_events)))
+  local wd = assert(notifyhandle:addwatch(path, unpack(watch_events)))
+  pathbywd[wd] = path
   wachedpaths[path] = true
 end
 
@@ -461,7 +463,7 @@ end
 local function check_if_should_restart(path)
   if config.only_input then return true end
   if millis() - lastrun < 200 then return false end -- change is too recent, ignore
-  if not path or is_ignored(path) then return false end
+  if not path or is_ignored(plpath.basename(path)) then return false end
   if plpath.isdir(path) then
     if not wachedpaths[path] then
       addwatch(path)
@@ -482,11 +484,11 @@ local function wait_restart()
     local events, reason, errcode = notifyhandle:read()
     if events then
       for _,ev in ipairs(events) do
-        local name = ev.name
-        if check_if_should_restart(name) then
+        local path = plpath.join(pathbywd[ev.wd], ev.name)
+        if check_if_should_restart(path) then
           changemillis = millis()
           if config.verbose then
-            colorprintf(colors.yellow, '[luamon] %s changed', ev.name)
+            colorprintf(colors.yellow, '[luamon] %s changed', path)
           end
           run_finish()
           restart = true
