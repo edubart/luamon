@@ -484,14 +484,17 @@ local function wait_restart()
     local events, reason, errcode = notifyhandle:read()
     if events then
       for _,ev in ipairs(events) do
-        local path = plpath.join(pathbywd[ev.wd], ev.name)
-        if check_if_should_restart(path) then
-          changemillis = millis()
-          if config.verbose then
-            colorprintf(colors.yellow, '[luamon] %s changed', path)
+        local dirpath, name = pathbywd[ev.wd], ev.name
+        if dirpath and name then
+          local path = plpath.join(pathbywd[ev.wd], ev.name)
+          if check_if_should_restart(path) then
+            changemillis = millis()
+            if config.verbose then
+              colorprintf(colors.yellow, '[luamon] %s changed', path)
+            end
+            run_finish()
+            restart = true
           end
-          run_finish()
-          restart = true
         end
       end
     elseif errcode == errno.EINTR then -- signal interrupted
